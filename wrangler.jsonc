@@ -1,0 +1,30 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "tim-calendar",
+  "main": "src/index.js",
+  "compatibility_date": "2025-09-01",
+  "assets": {
+    "directory": "./public",
+    "binding": "ASSETS",
+    // Unknown paths like /private-strategy-session serve the booking app (public/index.html).
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/api/*"]
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "tim-calendar",
+      // Replace with the id printed by: npx wrangler d1 create tim-calendar
+      "database_id": "00000000-0000-0000-0000-000000000000",
+      "migrations_dir": "migrations"
+    }
+  ],
+  "vars": {
+    // Public base URL of this calendar (used in reschedule/cancel links). Change after you add a custom domain.
+    "PUBLIC_BASE_URL": ""
+  },
+  "observability": { "enabled": true }
+  // Secrets (set with `npx wrangler secret put NAME`, never commit them):
+  //   ADMIN_PASSWORD  – password for /admin
+  //   GHL_API_KEY     – GoHighLevel Private Integration token
+}

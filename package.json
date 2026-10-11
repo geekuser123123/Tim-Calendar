@@ -1,0 +1,18 @@
+{
+  "name": "tim-calendar",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Custom booking calendar for Tim — Cloudflare Workers + D1, synced to GoHighLevel.",
+  "scripts": {
+    "dev": "wrangler d1 migrations apply DB --local && wrangler dev",
+    "test": "vitest run",
+    "db:migrate:local": "wrangler d1 migrations apply DB --local",
+    "db:migrate:remote": "wrangler d1 migrations apply DB --remote",
+    "deploy": "wrangler d1 migrations apply DB --remote && wrangler deploy"
+  },
+  "devDependencies": {
+    "vitest": "^3.2.4",
+    "wrangler": "^4.40.0"
+  }
+}
