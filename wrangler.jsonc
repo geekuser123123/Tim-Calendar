@@ -14,8 +14,7 @@
     {
       "binding": "DB",
       "database_name": "tim-calendar",
-      // Replace with the id printed by: npx wrangler d1 create tim-calendar
-      "database_id": "00000000-0000-0000-0000-000000000000",
+      "database_id": "eb957ce4-607b-43fa-8e3f-61d3b579a1a9",
       "migrations_dir": "migrations"
     }
   ],

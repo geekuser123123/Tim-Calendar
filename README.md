@@ -24,13 +24,12 @@ Durations, descriptions and questions are placeholders — edit them in **Admin 
 
 ### 1. Cloudflare
 
+The D1 database `tim-calendar` (id `eb957ce4-607b-43fa-8e3f-61d3b579a1a9`, Eastern North America) is already created and set in `wrangler.jsonc`. Its tables are created by the first deploy.
+
 ```bash
 npm install
 npx wrangler login
-npx wrangler d1 create tim-calendar          # copy the database_id it prints
 ```
-
-Paste the `database_id` into `wrangler.jsonc`, then:
 
 ```bash
 npx wrangler secret put ADMIN_PASSWORD        # Tim's admin password
