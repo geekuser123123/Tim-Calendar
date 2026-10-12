@@ -61,8 +61,8 @@ function shell() {
     const k = e.target.dataset.tab;
     if (!k) return;
     state.tab = k;
-    location.hash = k;
-    shell();
+    // Changing the hash fires popstate, which re-renders via route().
+    if (location.hash !== `#${k}`) location.hash = k; else shell();
   };
   document.getElementById('logout').onclick = async () => { await api('/api/admin/logout', { method: 'POST' }); showLogin(); };
   ({ bookings: viewBookings, sessions: viewSessions, availability: viewAvailability, share: viewShare, settings: viewSettings })[state.tab]();
@@ -72,6 +72,14 @@ const view = () => document.getElementById('view');
 // ---------- bookings ----------
 let bookingScope = 'upcoming';
 let bookingQuery = '';
+const isNew = (b) => Date.now() - Date.parse(b.created_at) < 86_400_000;
+
+function syncPill(b) {
+  if (b.ghl_sync_error) return '<span class="pill err">Sync error</span>';
+  if (b.ghl_contact_id) return '<span class="pill ok">In GHL</span>';
+  return '<span class="pill off">Not synced</span>';
+}
+
 async function viewBookings() {
   const tz = state.settings.host.timezone;
   view().innerHTML = `<div class="card">
@@ -79,7 +87,7 @@ async function viewBookings() {
       <select class="field" id="scope" style="width:auto">${['upcoming', 'past', 'cancelled'].map((s) => `<option ${s === bookingScope ? 'selected' : ''}>${s}</option>`).join('')}</select>
       <input class="field" id="q" placeholder="Search name, email, phone" style="width:240px" value="${esc(bookingQuery)}">
     </div>
-    <p class="hint">Times shown in ${esc(tz)}.</p>
+    <p class="hint">Times shown in ${esc(tz)}. Click a booking to see everything they filled in.</p>
     <div id="list"><p class="muted">Loading…</p></div></div>`;
   document.getElementById('scope').onchange = (e) => { bookingScope = e.target.value; viewBookings(); };
   let deb;
@@ -90,32 +98,110 @@ async function viewBookings() {
     try {
       const { bookings } = await api(`/api/admin/bookings?scope=${bookingScope}&q=${encodeURIComponent(bookingQuery)}`);
       if (!bookings.length) { list.innerHTML = '<p class="muted">No bookings here yet.</p>'; return; }
-      list.innerHTML = `<div class="table-wrap"><table><thead><tr><th>When</th><th>Session</th><th>Guest</th><th>GoHighLevel</th><th></th></tr></thead><tbody>
-        ${bookings.map((b) => `<tr>
-          <td><strong>${esc(fmtWhen(b.start_ms, tz))}</strong>${b.timezone && b.timezone !== tz ? `<div class="muted">Guest: ${esc(fmtWhen(b.start_ms, b.timezone))}</div>` : ''}</td>
-          <td>${esc(b.event_title)}${b.cancel_reason ? `<div class="muted">Reason: ${esc(b.cancel_reason)}</div>` : ''}</td>
-          <td><strong>${esc(`${b.first_name} ${b.last_name}`)}</strong><div><a href="mailto:${esc(b.email)}">${esc(b.email)}</a></div><div><a href="tel:${esc(b.phone)}">${esc(b.phone)}</a></div>
-            <ul class="answers">${b.answers.filter((a) => a.value).map((a) => `<li><strong>${esc(a.label)}</strong> ${esc(a.value)}</li>`).join('')}</ul></td>
-          <td>${b.ghl_sync_error ? `<span class="pill err" title="${esc(b.ghl_sync_error)}">Sync error</span><div class="muted" style="max-width:220px">${esc(b.ghl_sync_error)}</div>`
-    : b.ghl_contact_id ? `<span class="pill ok">Synced</span>${b.ghl_appointment_id ? '' : '<div class="muted">contact only</div>'}`
-      : '<span class="pill off">Not synced</span>'}</td>
-          <td><div class="row">
-            ${b.status === 'confirmed' && b.end_ms > Date.now() ? `<a class="btn secondary small" target="_blank" href="/manage/${esc(b.manage_token)}">Reschedule</a><button class="btn danger small" data-cancel="${b.id}">Cancel</button>` : ''}
-            <button class="btn secondary small" data-resync="${b.id}">Re-sync</button></div></td>
+      list.innerHTML = `<div class="table-wrap"><table class="clickable"><thead><tr><th>When</th><th>Guest</th><th>Session</th><th>GoHighLevel</th><th></th></tr></thead><tbody>
+        ${bookings.map((b) => `<tr data-open="${b.id}" tabindex="0" title="Open booking details">
+          <td><strong>${esc(fmtWhen(b.start_ms, tz))}</strong></td>
+          <td><strong>${esc(`${b.first_name} ${b.last_name}`)}</strong> ${isNew(b) && b.status === 'confirmed' ? '<span class="pill new">New</span>' : ''}<div class="muted">${esc(b.email)}</div></td>
+          <td>${esc(b.event_title)}</td>
+          <td>${syncPill(b)}</td>
+          <td class="chev">›</td>
         </tr>`).join('')}</tbody></table></div>`;
     } catch (e) { list.innerHTML = `<div class="error">${esc(e.message)}</div>`; }
   }
-  document.getElementById('list').onclick = (e) => {
-    const c = e.target.closest('[data-cancel]');
-    const r = e.target.closest('[data-resync]');
-    if (c) {
-      const reason = prompt('Cancel this booking? Optional message/reason for the guest:', '');
-      if (reason === null) return;
-      withBusy(c, async () => { await api(`/api/admin/bookings/${c.dataset.cancel}/cancel`, { method: 'POST', body: { reason } }); toast('Booking cancelled'); load(); });
-    }
-    if (r) withBusy(r, async () => { const { booking } = await api(`/api/admin/bookings/${r.dataset.resync}/resync`, { method: 'POST' }); toast(booking.ghl_sync_error ? `Sync error: ${booking.ghl_sync_error}` : 'Synced to GoHighLevel', Boolean(booking.ghl_sync_error)); load(); });
-  };
+  const list = document.getElementById('list');
+  const open = (e) => { const row = e.target.closest('[data-open]'); if (row) showBooking(Number(row.dataset.open)); };
+  list.onclick = open;
+  list.onkeydown = (e) => { if (e.key === 'Enter') open(e); };
   load();
+}
+
+function detailRow(label, value) {
+  return `<div class="dl-row"><dt>${esc(label)}</dt><dd>${value}</dd></div>`;
+}
+
+async function showBooking(id) {
+  if (location.hash !== `#bookings/${id}`) history.pushState(null, '', `#bookings/${id}`);
+  view().innerHTML = '<div class="card"><p class="muted">Loading…</p></div>';
+  let data;
+  try { data = await api(`/api/admin/bookings/${id}`); } catch (e) { view().innerHTML = `<div class="card"><div class="error">${esc(e.message)}</div></div>`; return; }
+  const b = data.booking;
+  const tz = state.settings.host.timezone;
+  const name = `${b.first_name} ${b.last_name}`.trim();
+  const upcoming = b.status === 'confirmed' && b.end_ms > Date.now();
+  const status = b.status === 'cancelled' ? '<span class="pill err">Cancelled</span>'
+    : upcoming ? '<span class="pill ok">Confirmed</span>' : '<span class="pill off">Past</span>';
+  const ghlUrl = b.ghl_contact_id && data.ghlLocationId
+    ? `https://app.gohighlevel.com/v2/location/${encodeURIComponent(data.ghlLocationId)}/contacts/detail/${encodeURIComponent(b.ghl_contact_id)}` : '';
+  const utm = Object.entries(b.utm || {});
+  const fmtLong = (ms, zone) => new Intl.DateTimeFormat('en-US', { timeZone: zone, weekday: 'long', month: 'long', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', timeZoneName: 'short' }).format(new Date(ms));
+  const endTime = new Intl.DateTimeFormat('en-US', { timeZone: tz, hour: 'numeric', minute: '2-digit' }).format(new Date(b.end_ms));
+
+  const summaryText = [
+    `${b.event_title} — ${fmtLong(b.start_ms, tz)}`,
+    `Name: ${name}`, `Email: ${b.email}`, `Phone: ${b.phone}`,
+    ...b.answers.map((a) => `${a.label}: ${a.value || '—'}`),
+  ].join('\n');
+
+  view().innerHTML = `
+    <div class="card"><div class="row">
+      <button class="btn secondary small" id="backList">‹ All bookings</button><span class="spacer"></span>
+      ${upcoming ? `<a class="btn secondary small" target="_blank" href="${esc(data.manageUrl)}">Reschedule</a><button class="btn danger small" id="cancelB">Cancel booking</button>` : ''}
+    </div>
+    <h2 style="margin-top:16px;font-size:22px">${esc(name)} ${status}</h2>
+    <p class="hint" style="margin:4px 0 0">${esc(b.event_title)} · ${esc(fmtLong(b.start_ms, tz))} – ${esc(endTime)}</p></div>
+
+    <div class="detail-grid">
+      <div class="card"><h2>Contact</h2><dl class="dl">
+        ${detailRow('Name', esc(name))}
+        ${detailRow('Email', `<a href="mailto:${esc(b.email)}">${esc(b.email)}</a>`)}
+        ${detailRow('Phone', `<a href="tel:${esc(b.phone)}">${esc(b.phone)}</a>`)}
+        ${detailRow('Their time zone', esc(b.timezone || '—'))}
+        ${b.timezone && b.timezone !== tz ? detailRow('Their local time', esc(fmtLong(b.start_ms, b.timezone))) : ''}
+      </dl></div>
+
+      <div class="card"><h2>Session</h2><dl class="dl">
+        ${detailRow('Session', esc(b.event_title))}
+        ${detailRow('When (your time)', esc(fmtLong(b.start_ms, tz)))}
+        ${detailRow('Length', `${b.duration_min} minutes`)}
+        ${b.location ? detailRow('Location', /^https?:\/\//.test(b.location) ? `<a href="${esc(b.location)}" target="_blank">${esc(b.location)}</a>` : esc(b.location)) : ''}
+        ${detailRow('Booked on', esc(fmtLong(Date.parse(b.created_at), tz)))}
+        ${b.status === 'cancelled' ? detailRow('Cancel reason', esc(b.cancel_reason || '—')) : ''}
+      </dl></div>
+    </div>
+
+    <div class="card"><div class="row"><h2 style="margin-right:auto">Their answers</h2><button class="btn secondary small" id="copyB">Copy all details</button></div>
+      ${b.answers.length ? `<dl class="dl answers-dl">${b.answers.map((a) => detailRow(a.label, a.value ? esc(a.value) : '<span class="muted">— not answered —</span>')).join('')}</dl>`
+    : '<p class="muted">This session has no extra questions.</p>'}
+    </div>
+
+    <div class="detail-grid">
+      <div class="card"><h2>Where they came from</h2><dl class="dl">
+        ${detailRow('Booking page', b.source_url ? `<a href="${esc(b.source_url)}" target="_blank" rel="noopener">${esc(b.source_url)}</a>` : '—')}
+        ${utm.length ? utm.map(([k, v]) => detailRow(k, esc(v))).join('') : detailRow('Tracking', '<span class="muted">No UTM tags</span>')}
+      </dl></div>
+
+      <div class="card"><h2>GoHighLevel</h2><dl class="dl">
+        ${detailRow('Status', syncPill(b))}
+        ${b.ghl_sync_error ? detailRow('Error', `<span style="color:var(--danger)">${esc(b.ghl_sync_error)}</span>`) : ''}
+        ${detailRow('Appointment', b.ghl_appointment_id ? 'Created on GHL calendar' : '<span class="muted">None</span>')}
+      </dl>
+      <div class="row" style="margin-top:12px">
+        ${ghlUrl ? `<a class="btn small" href="${esc(ghlUrl)}" target="_blank" rel="noopener">Open contact in GHL</a>` : ''}
+        <button class="btn secondary small" id="resyncB">Re-sync to GHL</button></div></div>
+    </div>`;
+
+  document.getElementById('backList').onclick = () => { history.pushState(null, '', '#bookings'); viewBookings(); };
+  document.getElementById('copyB').onclick = () => navigator.clipboard.writeText(summaryText).then(() => toast('Copied'), () => toast('Copy failed', true));
+  document.getElementById('resyncB').onclick = (e) => withBusy(e.target, async () => {
+    const { booking } = await api(`/api/admin/bookings/${id}/resync`, { method: 'POST' });
+    toast(booking.ghl_sync_error ? `Sync error: ${booking.ghl_sync_error}` : 'Synced to GoHighLevel', Boolean(booking.ghl_sync_error));
+    showBooking(id);
+  });
+  document.getElementById('cancelB')?.addEventListener('click', (e) => {
+    const reason = prompt(`Cancel ${name}'s booking? Optional reason:`, '');
+    if (reason === null) return;
+    withBusy(e.target, async () => { await api(`/api/admin/bookings/${id}/cancel`, { method: 'POST', body: { reason } }); toast('Booking cancelled'); showBooking(id); });
+  });
 }
 
 // ---------- weekly hours editor ----------
@@ -433,8 +519,14 @@ async function boot() {
     state.baseUrl = me.baseUrl;
     await refresh();
   } catch { return; }
-  const h = location.hash.slice(1);
+  route();
+  window.addEventListener('popstate', route);
+}
+
+function route() {
+  const [h, id] = location.hash.slice(1).split('/');
   if (TABS.some(([k]) => k === h)) state.tab = h;
   shell();
+  if (h === 'bookings' && /^\d+$/.test(id || '')) showBooking(Number(id));
 }
 boot();

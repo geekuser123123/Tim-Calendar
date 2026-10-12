@@ -55,3 +55,18 @@ code, .code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-
 #toast.show { opacity: 1; }
 #toast.bad { background: var(--danger); }
 details summary { cursor: pointer; font-weight: 600; margin: 8px 0; }
+table.clickable tbody tr { cursor: pointer; }
+table.clickable tbody tr:hover, table.clickable tbody tr:focus { background: var(--soft); outline: none; }
+td.chev { color: var(--muted); font-size: 22px; text-align: right; width: 30px; }
+.pill.new { background: #fff4e5; color: var(--warn); }
+.detail-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px; }
+.detail-grid .card { margin-bottom: 0; }
+.detail-grid + .card, .card + .detail-grid { margin-top: 16px; }
+.detail-grid:last-child { margin-bottom: 16px; }
+.dl { margin: 12px 0 0; }
+.dl-row { display: grid; grid-template-columns: 150px 1fr; gap: 12px; padding: 9px 0; border-bottom: 1px solid var(--border); font-size: 14px; }
+.dl-row:last-child { border-bottom: 0; }
+.dl dt { color: var(--muted); font-weight: 600; }
+.dl dd { margin: 0; word-break: break-word; white-space: pre-line; }
+.answers-dl .dl-row { grid-template-columns: minmax(180px, 40%) 1fr; }
+@media (max-width: 560px) { .dl-row, .answers-dl .dl-row { grid-template-columns: 1fr; gap: 2px; } }

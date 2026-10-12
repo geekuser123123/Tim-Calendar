@@ -245,6 +245,20 @@ export async function handleAdmin(env, request, ctx, path) {
   }
 
   if (path === '/api/admin/bookings' && method === 'GET') return listBookings(env, new URL(request.url));
+  if ((m = path.match(/^\/api\/admin\/bookings\/(\d+)$/)) && method === 'GET') {
+    const b = await getBookingById(env, Number(m[1]));
+    if (!b) throw new HttpError(404, 'Booking not found');
+    const [et, settings] = await Promise.all([getEventTypeById(env, b.event_type_id), getSettings(env)]);
+    // Include questions that were left blank (and ones added since) so Tim sees the full form.
+    const answered = new Map(b.answers.map((a) => [a.id, a]));
+    const answers = [...b.answers];
+    for (const q of et.questions) if (!answered.has(q.id)) answers.push({ id: q.id, label: q.label, value: '' });
+    return json({
+      booking: { ...b, answers, event_title: et.title, event_slug: et.slug, duration_min: et.duration_min, location: et.location },
+      ghlLocationId: settings.ghl.locationId,
+      manageUrl: `${baseUrl(env, request)}/manage/${b.manage_token}`,
+    });
+  }
   if ((m = path.match(/^\/api\/admin\/bookings\/(\d+)\/(cancel|resync)$/)) && method === 'POST') {
     const b = await getBookingById(env, Number(m[1]));
     if (!b) throw new HttpError(404, 'Booking not found');
